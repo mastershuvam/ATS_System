@@ -125,11 +125,6 @@ project-root/
 
 ---
 
-## Contributors
-- **Shuvam Ghosh** - Project Lead and Developer ([GitHub](https://github.com/avikalp987))
-
----
-
 ## License
 This project is licensed under the MIT License. See `LICENSE` for more details.
 
@@ -137,8 +132,7 @@ This project is licensed under the MIT License. See `LICENSE` for more details.
 
 ## Contact
 For questions or suggestions, reach out to:
-- Email: your-email@example.com
-- GitHub Issues: [Create an Issue](https://github.com/your-username/ats-resume-analyzer/issues)
+- Email: shuvamghosh375@example.com
 
 ---
 
