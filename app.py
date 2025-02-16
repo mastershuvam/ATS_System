@@ -1,14 +1,15 @@
 import streamlit as st
-from dotenv import load_dotenv
-from login import create_user, verify_user
-from pymongo import MongoClient
+import stripe
 import os
 import base64
 import io
+from pymongo import MongoClient
+from dotenv import load_dotenv
 from PIL import Image
 import pdf2image
 import google.generativeai as genai
 from datetime import datetime
+from login import create_user, verify_user
 
 load_dotenv()
 
@@ -17,101 +18,129 @@ client = MongoClient(os.getenv("MONGODB_URI"))
 db = client.ats_database
 analyses_collection = db.analyses
 
+# Stripe Configuration
+stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+
 # Configure Generative AI
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-# Custom CSS   
-# Add this CSS at the top of app.py (before any other code)
+# Custom CSS
 st.markdown("""
     <style>
-            
+    :root {
+        --primary: #2E86AB;
+        --secondary: #3AA6B9;
+        --accent: #FF6B6B;
+    }
+    
     .main {
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        min-height: 100vh;
         padding: 2rem;
     }
-
     
     .header {
         font-size: 2.5em;
-        color: var(--primary);
         padding: 20px 0;
         text-align: center;
         font-family: 'Poppins', sans-serif;
         font-weight: 600;
-        background: linear-gradient(45deg, #2E86AB, #3AA6B9);
+        background: linear-gradient(45deg, var(--primary), var(--secondary));
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
+        margin-bottom: 2rem;
+    }
+    
+    .custom-card {
+        background: white;
+        border-radius: 20px;
+        padding: 2rem;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        margin-bottom: 1.5rem;
+        transition: transform 0.3s ease;
+        color: black;
+    }
+    
+    .price-card {
+        background: linear-gradient(145deg, #ffffff, #f8f9fa);
+        border-radius: 15px;
+        padding: 2rem;
+        margin: 1rem 0;
+        border: 2px solid #e0e0e0;
+        transition: all 0.3s cubic-bezier(.25,.8,.25,1);
+        color: black;
+        height: 400px;
+    }
+    
+    .price-card:hover {
+        box-shadow: 0 14px 28px rgba(0,0,0,0.1), 0 10px 10px rgba(0,0,0,0.08);
+        border-color: var(--secondary);
     }
     
     .stButton button {
-        background: linear-gradient(45deg, #4B6CB7 0%, #182848 100%);
-        color: white;
-        border-radius: 8px;
-        padding: 0.5rem 1.5rem;
-        transition: all 0.3s ease;
+        border-radius: 12px !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.5px;
+        border: none !important;
+        background: linear-gradient(135deg, var(--secondary), var(--primary)) !important;
+        width: 100%;
     }
-    .stButton button:hover {
-        transform: scale(1.05);
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-    }
+    
     .response-box {
-        background: #fff; /* White background */
-        color: #000; /* Black text */
-        border: 1px solid #000; /* Black border for contrast */
-        border-radius: 15px; /* Rounded corners */
-        padding: 2rem; /* Spacing inside the box */
-        margin-top: 1.5rem; /* Spacing above the box */
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* Subtle shadow for depth */
-        font-family: 'Arial', sans-serif; /* Clean font style */
-        transition: transform 0.2s ease-in-out; /* Smooth interaction animation */
+        animation: fadeIn 0.5s ease-out;
+        background: linear-gradient(145deg, #ffffff, #f8f9fa);
+        border-left: 4px solid var(--secondary);
+        border-radius: 15px;
+        padding: 2rem;
+        margin: 1.5rem 0;
+        color: black;
     }
     
-    .stTextInput>div>div>input, 
-    .stTextArea>div>div>textarea {
-        border-radius: 8px !important;
-        padding: 12px !important;
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
     }
     
-    [data-testid="stExpander"] {
-        background: var(--secondary) !important;
-        border-radius: 12px !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
+    .auth-container {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 4rem;
+        align-items: center;
+        padding: 4rem 0;
     }
     
-    .stFileUploader {
-        border: 2px dashed var(--primary) !important;
-        border-radius: 12px !important;
-        padding: 20px !important;
-    }
-    
-    .success {
-        color: #28a745 !important;
-        font-weight: 500 !important;
-    }
-    
-    .error {
-        color: #dc3545 !important;
-        font-weight: 500 !important;
-    }
-    
-    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap');
-    html, body, [class*="css"]  {
-        font-family: 'Poppins', sans-serif;
+    .credit-counter {
+        background: white;
+        padding: 1rem;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        margin-bottom: 1.5rem;
+        color:black;
     }
     </style>
 """, unsafe_allow_html=True)
 
+
 # Update the auth_page function with these changes
+# Authentication Page
 def auth_page():
-    st.markdown('<div class="header">🔒 ATS Resume Analyzer</div>', unsafe_allow_html=True)
-    
+    st.markdown("""
+    <div class="auth-container">
+        <div>
+            <h1 class="header">🔐 Smart ATS Analyzer</h1>
+            <p style="font-size: 1.2rem; color: #666; margin-bottom: 2rem;">
+                AI-powered resume optimization for modern job seekers
+            </p>
+        </div>
+        <div>
+    """, unsafe_allow_html=True)
+
     tab1, tab2 = st.tabs(["📲 Login", "📝 Register"])
     
     with tab1:
         with st.form("Login"):
-            st.subheader("Welcome Back!")
-            email = st.text_input("Email", placeholder="Enter your email")
-            password = st.text_input("Password", type="password", placeholder="••••••••")
+            email = st.text_input("Email")
+            password = st.text_input("Password", type="password")
             submit = st.form_submit_button("🚀 Login")
             
             if submit:
@@ -126,10 +155,9 @@ def auth_page():
 
     with tab2:
         with st.form("Register"):
-            st.subheader("Create New Account")
-            new_email = st.text_input("Email", placeholder="Enter your email")
-            new_password = st.text_input("Password", type="password", placeholder="••••••••")
-            confirm_password = st.text_input("Confirm Password", type="password", placeholder="••••••••")
+            new_email = st.text_input("Email")
+            new_password = st.text_input("Password", type="password")
+            confirm_password = st.text_input("Confirm Password", type="password")
             submit = st.form_submit_button("✨ Create Account")
             
             if submit:
@@ -142,80 +170,178 @@ def auth_page():
                     except ValueError as e:
                         st.error(str(e))
 
-# Update the main_app function with these changes
-def main_app():
-    st.markdown('<div class="header">📄 Smart ATS Resume Analyzer</div>', unsafe_allow_html=True)
-    
-    # Add logout button
-    col1, col2 = st.columns([4,1])
-    with col2:
-        if st.button("🚪 Logout"):
-            st.session_state['authenticated'] = False
-            st.rerun()
-    
-    with st.expander("📌 How to use this tool", expanded=True):
-        st.markdown("""
-        1. 📝 Paste the job description in the text area<br>
-        2. 📤 Upload your resume in PDF format<br>
-        3. 🔍 Choose an analysis option from the buttons below<br>
-        """, unsafe_allow_html=True)
-    
-  
+    st.markdown("</div></div>", unsafe_allow_html=True)
 
-    col1, col2 = st.columns([3, 2])
+# Payment Page
+def payment_page():
+    st.markdown('<div class="header">💳 Premium Services</div>', unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns(3)
     with col1:
-        input_text = st.text_area("**Paste Job Description Here** ✍️", height=200)
+        with st.container():
+            st.markdown("""
+            <div class="price-card">
+                <h3>🚀 Basic</h3>
+                <h2>$49</h2>
+                <hr style="margin: 1rem 0;">
+                <ul style="padding-left: 1.2rem;">
+                    <li>Resume Evaluation</li>
+                    <li>Basic ATS Check</li>
+                    <li>3 Revisions</li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.button("Choose Basic", key="basic"):
+                initiate_payment(4900)
+
     with col2:
-        uploaded_file = st.file_uploader("**Upload Resume (PDF)** 📄", type=["pdf"])
+        with st.container():
+            st.markdown("""
+            <div class="price-card">
+                <h3>💎 Pro</h3>
+                <h2>$99</h2>
+                <hr style="margin: 1rem 0;">
+                <ul style="padding-left: 1.2rem;">
+                    <li>Advanced Analysis</li>
+                    <li>ATS Optimization</li>
+                    <li>Unlimited Revisions</li>
+                    <li>Priority Support</li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.button("Choose Pro", key="pro"):
+                initiate_payment(9900)
 
-    button_col1, button_col2, button_col3 = st.columns(3)  # Added a 4th column for the new button
-    with button_col1:
-        submit1 = st.button("🔍 Resume Evaluation")
-        with button_col2:
-            submit2 = st.button("💡 Improvement Tips")
-        with button_col3:
-            submit3 = st.button("📊 Match Percentage")
-        #with button_col4:
-            #submit4 = st.button("🏢 Recommended Companies")
+    with col3:
+        with st.container():
+            st.markdown("""
+            <div class="price-card">
+                <h3>🎯 Custom</h3>
+                <h2>Contact</h2>
+                <hr style="margin: 1rem 0;">
+                <p>Tailored solutions for:</p>
+                <ul style="padding-left: 1.2rem;">
+                    <li>Enterprise</li>
+                    <li>Recruitment Agencies</li>
+                    <li>Custom Integration</li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.button("Contact Us", key="custom"):
+                st.info("✉️ shuvamghosh375@gmail.com")
 
-    if submit1 or submit2 or submit3 :
-        if uploaded_file is not None:
+def initiate_payment(amount):
+    try:
+        session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            line_items=[{
+                'price_data': {
+                    'currency': 'usd',
+                    'product_data': {'name': 'Service Plan'},
+                    'unit_amount': amount,
+                },
+                'quantity': 1,
+            }],
+            mode='payment',
+            success_url=os.getenv("SUCCESS_URL"),
+            cancel_url=os.getenv("CANCEL_URL"),
+        )
+        st.markdown(f"[![Pay Now](https://img.icons8.com/color/48/000000/stripe.png)]({session.url})", unsafe_allow_html=True)
+    except Exception as e:
+        st.error(f"Payment failed: {str(e)}")
+
+def show_remaining_credits_sidebar(analysis_count):
+    remaining_credits = 5 - analysis_count
+    
+    with st.sidebar:
+        st.markdown(f'<div class="credit-counter">✨ Remaining Credits: {remaining_credits}/5</div>', unsafe_allow_html=True)
+        if remaining_credits <= 0:
+            st.error("Please upgrade to continue")
+
+# Main Application
+def main_app():
+    st.markdown('<div class="header">📄 ATS Resume Analyzer</div>', unsafe_allow_html=True)
+
+    user = st.session_state.get('user')
+    analysis_count = analyses_collection.count_documents({"user_id": user['_id']})
+    show_remaining_credits_sidebar(analysis_count)
+
+    if analysis_count >= 5:
+        st.warning("Please upgrade your plan to continue using the service")
+        return
+
+    with st.container():
+        st.markdown("""
+        <div class="custom-card">
+            <h3 style="margin-top: 0;">🔍 Start Your Analysis</h3>
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 2rem;">
+                <div>
+                    <p style="font-weight: 500; margin-bottom: 0.5rem;">📝 Paste Job Description</p>
+        """, unsafe_allow_html=True)
+        
+        input_text = st.text_area("", height=200, label_visibility="collapsed")
+
+        st.markdown("""
+                </div>
+                <div>
+                    <p style="font-weight: 500; margin-bottom: 0.5rem;">📤 Upload Resume</p>
+        """, unsafe_allow_html=True)
+        
+        uploaded_file = st.file_uploader("", type=["pdf"], label_visibility="collapsed")
+
+        st.markdown("</div></div></div>", unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        analysis_type = st.selectbox("Select Analysis Type", [
+            "Resume Evaluation", 
+            "Improvement Tips", 
+            "Match Percentage"
+        ])
+
+    if st.button("🚀 Run Analysis", use_container_width=True):
+        if uploaded_file and input_text:
             try:
-                pdf_content = input_pdf_setup(uploaded_file)
-                
-                if submit1:
-                    prompt = """
-                    You are an experienced Technical Human Resource Manager,your task is to review the provided resume against the job description. 
-                    Please share your professional evaluation on whether the candidate's profile aligns with the role. 
-                    Highlight the strengths and weaknesses of the applicant in relation to the specified 
-                    """
-                elif submit2:
-                    prompt = """
-                    You are a career coach and industry expert with years of experience in helping professionals enhance their skills. 
-                    Your task is to analyze the provided resume and the job description. Based on this, suggest specific skills or certifications 
-                    the candidate should acquire to improve their alignment with the desired role.
-                    """
-                else :
-                    prompt = """
-                    You are an skilled ATS (Applicant Tracking System) scanner with a deep understanding of data science and ATS functionality, 
-                    your task is to evaluate the resume against the provided job description. give me the percentage of match if the resume matches
-                    the job description. First the output should come as percentage and then keywords mis
-                    """
-
-                #else:
-                    #prompt = """
-                    #You are a professional recruiter with years of experience in the industry. Your task is to evaluate the resume against the job description. 
-                    #Based on this, suggest companies that the candidate should consider applying to, given their skills and experience.
-                    #"""
-
-                response = get_gemini_response(prompt, pdf_content, input_text)
-                show_response(response)
-                log_analysis(input_text, "evaluation" if submit1 else "improvement" if submit2 else "match", response)
+                with st.spinner("🔍 Analyzing your resume..."):
+                    pdf_content = input_pdf_setup(uploaded_file)
+                    if analysis_type == "Resume Evaluation":
+                        prompt = f"""
+                        You are an experienced Technical Human Resource Manager,your task is to review the provided resume against the job description. 
+                        Please share your professional evaluation on whether the candidate's profile aligns with the role. 
+                        Highlight the strengths and weaknesses of the applicant in relation to the specified 
+                        """
+                        response = get_gemini_response(prompt, pdf_content, input_text)
+                        show_response(response)
+                        log_analysis(input_text, analysis_type, response)
+                        st.session_state.last_analysis = response
+                    elif analysis_type == "Resume Evaluation":
+                        prompt = f"""
+                        You are a career coach and industry expert with years of experience in helping professionals enhance their skills. 
+                        Your task is to analyze the provided resume and the job description. Based on this, suggest specific skills or certifications 
+                        the candidate should acquire to improve their alignment with the desired role.
+                        """
+                        response = get_gemini_response(prompt, pdf_content, input_text)
+                        show_response(response)
+                        log_analysis(input_text, analysis_type, response)
+                        st.session_state.last_analysis = response
+                    else:
+                        analysis_type = "Improvement Tips"
+                        prompt = f"""
+                        You are an skilled ATS (Applicant Tracking System) scanner with a deep understanding of data science and ATS functionality, 
+                        your task is to evaluate the resume against the provided job description. give me the percentage of match if the resume matches
+                        the job description. First the output should come as percentage and then keywords mis
+                        """
+                        response = get_gemini_response(prompt, pdf_content, input_text)
+                        show_response(response)
+                        log_analysis(input_text, analysis_type, response)
+                        st.session_state.last_analysis = response
 
             except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
+                st.error(f"Analysis failed: {str(e)}")
         else:
-            st.warning("⚠️ Please upload your resume PDF first!")
+            st.warning("Please provide both resume and job description")
+
+
 
 # Helper Functions
 def input_pdf_setup(uploaded_file):
@@ -252,7 +378,22 @@ def show_response(response_text):
 if 'authenticated' not in st.session_state:
     st.session_state['authenticated'] = False
 
+with st.sidebar:
+    st.image("https://img.icons8.com/clouds/200/resume.png", width=100)
+    menu = st.radio("Navigation", ["Home", "Premium", "Account"])
+    
+    if st.session_state.get('authenticated'):
+        if st.button("🚪 Logout"):
+            st.session_state['authenticated'] = False
+            st.rerun()
+
 if st.session_state['authenticated']:
-    main_app()
+    if menu == "Home":
+        main_app()
+    elif menu == "Premium":
+        payment_page()
+    elif menu == "Account":
+        st.write("Account Settings")
 else:
     auth_page()
+
