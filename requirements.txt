@@ -5,3 +5,4 @@ bcrypt
 Pillow
 pdf2image
 google-generativeai
+stripe
